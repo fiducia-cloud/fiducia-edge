@@ -1,0 +1,15 @@
+{
+  "name": "fiducia-edge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker — global edge entry for fiducia.cloud; region selection + edge concerns, forwards to the regional load balancer.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^3"
+  }
+}

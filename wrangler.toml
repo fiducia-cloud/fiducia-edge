@@ -1,0 +1,25 @@
+name = "fiducia-edge"
+main = "src/index.mjs"
+compatibility_date = "2026-06-01"
+
+# Regional load-balancer origins the edge forwards to (ordered primary→fallback).
+# Override per environment / via secrets. In production prefer CF KV (below) so
+# the list + per-region health can change without a redeploy.
+[vars]
+FIDUCIA_REGIONS = '[{"name":"us-east","url":"https://us-east.lb.fiducia.cloud"},{"name":"eu-west","url":"https://eu-west.lb.fiducia.cloud"}]'
+
+# Optional: live routing config + per-region health, read at the edge.
+# [[kv_namespaces]]
+# binding = "FIDUCIA_CONFIG"
+# id = "<kv-namespace-id>"
+
+# Optional: precise distributed rate limiting at the edge.
+# [[durable_objects.bindings]]
+# name = "RATE_LIMITER"
+# class_name = "RateLimiter"
+
+# Optional: if the edge ever needs key→shard, ship the fiducia-routing crate as
+# WASM instead of reimplementing the hash in JS.
+# [[wasm_modules]]
+# binding = "ROUTING"
+# source = "fiducia_routing.wasm"
