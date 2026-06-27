@@ -22,6 +22,15 @@
  * and health are stubbed (they need KV / Durable Object bindings).
  */
 
+/**
+ * Error/response shapes are defined once in `@fiducia/interfaces` (the shared
+ * contract). The edge forwards node/LB responses through untouched (it owns
+ * redirects internally), but pins the types it reasons about from that source.
+ *
+ * @typedef {import("@fiducia/interfaces/typescript").ProposeError} ProposeError
+ * @typedef {import("@fiducia/interfaces/typescript").Introspection} Introspection
+ */
+
 /** Parse the configured regional load-balancer origins from env. */
 export function loadRegions(env) {
   try {
