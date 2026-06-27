@@ -23,7 +23,7 @@
  */
 
 /** Parse the configured regional load-balancer origins from env. */
-function loadRegions(env) {
+export function loadRegions(env) {
   try {
     return JSON.parse(env.FIDUCIA_REGIONS ?? "[]");
   } catch {
@@ -38,7 +38,7 @@ function loadRegions(env) {
  * TODO: real health from KV (env.FIDUCIA_CONFIG) + a colo/continent -> region
  * proximity table using request.cf.{colo,continent,country}.
  */
-function pickRegions(request, regions) {
+export function pickRegions(request, regions) {
   const _cf = request.cf ?? {};
   // Skeleton: forward in configured order (already a sane primary/secondary).
   return regions;
@@ -61,7 +61,7 @@ async function checkRateLimit(_request, _env) {
  * Coordination state is consistency-sensitive — NEVER cache writes or locks.
  * Only explicitly opt-in config reads (`GET /v1/kv?key=...&cache=...`).
  */
-function isCacheableRead(request) {
+export function isCacheableRead(request) {
   if (request.method !== "GET") return false;
   const url = new URL(request.url);
   // KV keys are a `?key=` query param (never a path segment), and a `watch`
