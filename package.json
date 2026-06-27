@@ -7,7 +7,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node --check src/index.mjs"
+    "check": "node --check src/index.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fiducia/interfaces": "file:../fiducia-interfaces"
   },
   "devDependencies": {
     "wrangler": "^3"

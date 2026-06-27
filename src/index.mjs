@@ -22,8 +22,17 @@
  * and health are stubbed (they need KV / Durable Object bindings).
  */
 
+/**
+ * Error/response shapes are defined once in `@fiducia/interfaces` (the shared
+ * contract). The edge forwards node/LB responses through untouched (it owns
+ * redirects internally), but pins the types it reasons about from that source.
+ *
+ * @typedef {import("@fiducia/interfaces/typescript").ProposeError} ProposeError
+ * @typedef {import("@fiducia/interfaces/typescript").Introspection} Introspection
+ */
+
 /** Parse the configured regional load-balancer origins from env. */
-function loadRegions(env) {
+export function loadRegions(env) {
   try {
     return JSON.parse(env.FIDUCIA_REGIONS ?? "[]");
   } catch {
@@ -38,7 +47,7 @@ function loadRegions(env) {
  * TODO: real health from KV (env.FIDUCIA_CONFIG) + a colo/continent -> region
  * proximity table using request.cf.{colo,continent,country}.
  */
-function pickRegions(request, regions) {
+export function pickRegions(request, regions) {
   const _cf = request.cf ?? {};
   // Skeleton: forward in configured order (already a sane primary/secondary).
   return regions;
@@ -59,12 +68,19 @@ async function checkRateLimit(_request, _env) {
 /**
  * Is this request safe to serve from the edge cache? Default: no.
  * Coordination state is consistency-sensitive — NEVER cache writes or locks.
- * Only explicitly opt-in config reads (`GET /v1/kv/...?cache=...`).
+ * Only explicitly opt-in config reads (`GET /v1/kv?key=...&cache=...`).
  */
-function isCacheableRead(request) {
+export function isCacheableRead(request) {
   if (request.method !== "GET") return false;
   const url = new URL(request.url);
-  return url.pathname.startsWith("/v1/kv/") && url.searchParams.has("cache");
+  // KV keys are a `?key=` query param (never a path segment), and a `watch`
+  // stream must never be cached. Cache only an explicit, non-watch KV read.
+  return (
+    url.pathname === "/v1/kv" &&
+    url.searchParams.has("key") &&
+    url.searchParams.has("cache") &&
+    !url.searchParams.has("watch")
+  );
 }
 
 /** Forward to the first region that answers; fail over to the next on 5xx/error. */
