@@ -3,3 +3,5 @@ node_modules/
 dist/
 *.log
 .dev.vars
+.env
+.DS_Store
