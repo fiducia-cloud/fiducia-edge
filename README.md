@@ -1,7 +1,7 @@
 # fiducia-edge
 
 The global **edge entry** for [fiducia.cloud](https://fiducia.cloud) — a
-Cloudflare Worker that runs at CF PoPs close to clients. This is a **skeleton**.
+Cloudflare Worker that runs at CF PoPs close to clients.
 
 ## Two-tier routing
 
