@@ -7,7 +7,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isCacheableRead, loadRegions, pickRegions } from "./index.mjs";
+import {
+  checkAuth,
+  extractCredential,
+  headersForOrigin,
+  isApiKeyCredential,
+  isCacheableRead,
+  loadRegions,
+  looksLikeJwt,
+  pickRegions,
+} from "./index.mjs";
 
 const req = (url, method = "GET") => new Request(url, { method });
 
@@ -45,4 +54,90 @@ test("pickRegions: preserves the configured primary→fallback order", () => {
   const regions = [{ name: "a", url: "https://a" }, { name: "b", url: "https://b" }];
   // Failover relies on order: primary first, fallback next.
   assert.deepEqual(pickRegions(req("https://api.fiducia.cloud/v1/status"), regions), regions);
+});
+
+test("extractCredential accepts bearer or x-api-key", () => {
+  assert.equal(
+    extractCredential(new Request("https://api.fiducia.cloud/v1/status", {
+      headers: { authorization: "Bearer fdc_live_id.secret" },
+    })),
+    "fdc_live_id.secret",
+  );
+  assert.equal(
+    extractCredential(new Request("https://api.fiducia.cloud/v1/status", {
+      headers: { "x-api-key": "fdc_live_other.secret" },
+    })),
+    "fdc_live_other.secret",
+  );
+});
+
+test("credential helpers classify fiducia keys and JWTs", () => {
+  assert.equal(isApiKeyCredential("fdc_live_id.secret"), true);
+  assert.equal(isApiKeyCredential("header.payload.signature"), false);
+  assert.equal(looksLikeJwt("header.payload.signature"), true);
+  assert.equal(looksLikeJwt("fdc_live_id.secret"), false);
+});
+
+test("headersForOrigin strips raw credentials and injects verified identity", () => {
+  const headers = headersForOrigin(
+    new Headers({
+      authorization: "Bearer fdc_live_id.secret",
+      "x-api-key": "fdc_live_id.secret",
+      "x-fiducia-org-id": "spoofed",
+      "x-fiducia-scopes": "spoofed",
+      "x-request-id": "req_1",
+    }),
+    {
+      kind: "api_key",
+      orgId: "org_1",
+      keyId: "key_1",
+      scopes: ["kv:read", "locks:write"],
+    },
+  );
+
+  assert.equal(headers.get("authorization"), null);
+  assert.equal(headers.get("x-api-key"), null);
+  assert.equal(headers.get("x-fiducia-auth-kind"), "api_key");
+  assert.equal(headers.get("x-fiducia-org-id"), "org_1");
+  assert.equal(headers.get("x-fiducia-key-id"), "key_1");
+  assert.equal(headers.get("x-fiducia-scopes"), "kv:read locks:write");
+  assert.equal(headers.get("x-request-id"), "req_1");
+});
+
+test("checkAuth introspects API keys once and then serves from cache", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (url, init) => {
+    calls += 1;
+    assert.equal(url, "https://auth.test/v1/introspect");
+    assert.equal(init.method, "POST");
+    const body = JSON.parse(init.body);
+    assert.equal(body.api_key, "fdc_live_cache.secret");
+    return Response.json({
+      valid: true,
+      org_id: "org_cache",
+      key_id: "key_cache",
+      scopes: ["kv:read"],
+    });
+  };
+
+  try {
+    const env = {
+      FIDUCIA_AUTH_REQUIRED: "true",
+      FIDUCIA_AUTH_URL: "https://auth.test",
+      FIDUCIA_AUTH_CACHE_TTL_SECONDS: "60",
+    };
+    const request = new Request("https://api.fiducia.cloud/v1/kv?key=x", {
+      headers: { authorization: "Bearer fdc_live_cache.secret" },
+    });
+    const first = await checkAuth(request, env);
+    const second = await checkAuth(request, env);
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.equal(second.cache, "hit");
+    assert.equal(first.identity.orgId, "org_cache");
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

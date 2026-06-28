@@ -7,6 +7,14 @@ compatibility_date = "2026-06-01"
 # the list + per-region health can change without a redeploy.
 [vars]
 FIDUCIA_REGIONS = '[{"name":"us-east","url":"https://us-east.lb.fiducia.cloud"},{"name":"eu-west","url":"https://eu-west.lb.fiducia.cloud"}]'
+FIDUCIA_AUTH_REQUIRED = "true"
+FIDUCIA_AUTH_URL = "https://auth.fiducia.cloud"
+FIDUCIA_AUTH_CACHE_TTL_SECONDS = "60"
+FIDUCIA_AUTH_NEGATIVE_CACHE_TTL_SECONDS = "5"
+FIDUCIA_AUTH_JWKS_TTL_SECONDS = "600"
+FIDUCIA_AUTH_JWT_CACHE_TTL_SECONDS = "60"
+FIDUCIA_JWT_ISSUER = "fiducia-auth"
+FIDUCIA_JWT_AUDIENCE = "fiducia-api"
 
 # Optional: live routing config + per-region health, read at the edge.
 # [[kv_namespaces]]
