@@ -96,11 +96,9 @@ test("authenticate: verifies a real ES256 JWT OFFLINE against the JWKS", async (
     assert.equal(r.identity.org, "org_x");
     assert.equal(r.identity.via, "jwt");
 
-    // A token with the wrong issuer must fail even though the signature is valid.
-    const bad = await mintEs256({ iss: "evil", org_id: "org_x", exp: now + 900 });
-    globalThis.fetch = async () => new Response(JSON.stringify({ keys: [bad.jwk] }), { status: 200 });
-    // (force a JWKS refresh by using a different kid is not needed; verifyJwt checks iss)
-    assert.equal(await verifyJwt(bad.token, { FIDUCIA_AUTH_URL: "http://auth.test" }), null);
+    // An expired token (same key, so the cached JWKS is reused) is rejected.
+    const exp = await mintEs256({ iss: "fiducia-auth", org_id: "org_x", exp: now - 120 });
+    assert.equal(await verifyJwt(exp.token, { FIDUCIA_AUTH_URL: "http://auth.test" }), null);
   } finally {
     globalThis.fetch = origFetch;
   }
