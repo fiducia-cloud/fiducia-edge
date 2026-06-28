@@ -242,8 +242,9 @@ export default {
     }
 
     // 1. Auth + rate limit at the edge — reject early, shield the cluster.
-    if (!checkAuth(request, env).ok) {
-      return new Response("unauthorized", { status: 401 });
+    const authResult = await authenticate(request, env);
+    if (!authResult.ok) {
+      return Response.json({ error: "unauthorized", detail: authResult.error }, { status: authResult.status });
     }
     if (!(await checkRateLimit(request, env)).ok) {
       return new Response("rate_limited", { status: 429 });
