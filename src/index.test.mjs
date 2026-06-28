@@ -61,3 +61,47 @@ test("pickRegions: preserves the configured primary→fallback order", () => {
   // Failover relies on order: primary first, fallback next.
   assert.deepEqual(pickRegions(req("https://api.fiducia.cloud/v1/status"), regions), regions);
 });
+
+const authed = (url, token) =>
+  new Request(url, { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} });
+
+test("authenticate: permissive allows anonymous; enforce rejects it", async () => {
+  const r1 = await authenticate(authed("https://x/v1/locks/acquire"), {});
+  assert.deepEqual(r1, { ok: true, identity: null });
+
+  const r2 = await authenticate(authed("https://x/v1/locks/acquire"), { FIDUCIA_AUTH_MODE: "enforce" });
+  assert.equal(r2.ok, false);
+  assert.equal(r2.status, 401);
+});
+
+test("authenticate: a garbage JWT is rejected (no JWKS fetch needed)", async () => {
+  const r = await authenticate(authed("https://x/v1/locks/acquire", "aaaa.bbbb.cccc"), { FIDUCIA_AUTH_URL: "http://auth.test" });
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 401);
+});
+
+test("authenticate: verifies a real ES256 JWT OFFLINE against the JWKS", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const { token, jwk } = await mintEs256({ iss: "fiducia-auth", org_id: "org_x", scopes: ["locks:write"], exp: now + 900 });
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/.well-known/jwks.json")) {
+      return new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  try {
+    const r = await authenticate(authed("https://x/v1/locks/acquire", token), { FIDUCIA_AUTH_URL: "http://auth.test" });
+    assert.equal(r.ok, true);
+    assert.equal(r.identity.org, "org_x");
+    assert.equal(r.identity.via, "jwt");
+
+    // A token with the wrong issuer must fail even though the signature is valid.
+    const bad = await mintEs256({ iss: "evil", org_id: "org_x", exp: now + 900 });
+    globalThis.fetch = async () => new Response(JSON.stringify({ keys: [bad.jwk] }), { status: 200 });
+    // (force a JWKS refresh by using a different kid is not needed; verifyJwt checks iss)
+    assert.equal(await verifyJwt(bad.token, { FIDUCIA_AUTH_URL: "http://auth.test" }), null);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
