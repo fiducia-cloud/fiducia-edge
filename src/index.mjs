@@ -53,10 +53,127 @@ export function pickRegions(request, regions) {
   return regions;
 }
 
-/** Reject unauthenticated requests at the edge. TODO: real verification. */
-function checkAuth(_request, _env) {
-  // TODO: validate Authorization / API key (JWT verify or KV lookup).
-  return { ok: true };
+// --- edge auth: verify Fiducia JWTs OFFLINE (WebCrypto + cached JWKS) and
+// introspect API keys via auth (cached). Both keep the hot path off auth. ---
+
+const ISSUER = "fiducia-auth";
+const JWKS_TTL_MS = 10 * 60 * 1000;
+const INTROSPECT_TTL_MS = 30 * 1000;
+const NEGATIVE_TTL_MS = 5 * 1000;
+
+// Per-isolate caches (Workers reuse an isolate across requests).
+let _jwks = { keys: null, at: 0 };
+const _keyCache = new Map(); // kid -> CryptoKey
+const _introCache = new Map(); // api key -> { identity, exp }
+
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4 ? "=".repeat(4 - (s.length % 4)) : "";
+  const bin = atob(s + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function b64urlToJSON(s) {
+  return JSON.parse(new TextDecoder().decode(b64urlToBytes(s)));
+}
+
+async function fetchJwks(env) {
+  const now = Date.now();
+  if (_jwks.keys && now - _jwks.at < JWKS_TTL_MS) return _jwks.keys;
+  const base = (env.FIDUCIA_AUTH_URL ?? "").replace(/\/$/, "");
+  if (!base) return _jwks.keys ?? [];
+  try {
+    const r = await fetch(`${base}/.well-known/jwks.json`);
+    if (r.ok) {
+      const set = await r.json();
+      _jwks = { keys: set.keys ?? [], at: now };
+      _keyCache.clear();
+    }
+  } catch {
+    /* serve stale on a transient failure */
+  }
+  return _jwks.keys ?? [];
+}
+
+/** Verify a Fiducia-issued ES256 JWT offline against the published JWKS. */
+export async function verifyJwt(token, env) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  let header, payload;
+  try {
+    header = b64urlToJSON(parts[0]);
+    payload = b64urlToJSON(parts[1]);
+  } catch {
+    return null;
+  }
+  if (header.alg !== "ES256") return null;
+
+  const jwk = (await fetchJwks(env)).find((k) => k.kid === header.kid);
+  if (!jwk) return null;
+  let key = _keyCache.get(header.kid);
+  if (!key) {
+    try {
+      key = await crypto.subtle.importKey(
+        "jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+      _keyCache.set(header.kid, key);
+    } catch {
+      return null;
+    }
+  }
+  const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  const ok = await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" }, key, b64urlToBytes(parts[2]), data);
+  if (!ok) return null;
+
+  if (payload.iss !== ISSUER) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp === "number" && payload.exp < now) return null;
+  return { org: payload.org_id ?? payload.sub ?? "", scopes: payload.scopes ?? [], via: "jwt" };
+}
+
+/** Validate an API key via auth introspection, caching the result. */
+async function introspectKey(token, env) {
+  const now = Date.now();
+  const hit = _introCache.get(token);
+  if (hit && hit.exp > now) return hit.identity;
+  const base = (env.FIDUCIA_AUTH_URL ?? "").replace(/\/$/, "");
+  if (!base) return null;
+  try {
+    const headers = { "content-type": "application/json" };
+    if (env.FIDUCIA_INTROSPECT_SECRET) headers["x-server-auth"] = env.FIDUCIA_INTROSPECT_SECRET;
+    const r = await fetch(`${base}/v1/introspect`, {
+      method: "POST", headers, body: JSON.stringify({ api_key: token }),
+    });
+    if (!r.ok) return null;
+    const intro = await r.json();
+    if (!intro.valid) {
+      _introCache.set(token, { identity: null, exp: now + NEGATIVE_TTL_MS });
+      return null;
+    }
+    const identity = { org: intro.org_id ?? "", scopes: intro.scopes ?? [], via: "api_key" };
+    _introCache.set(token, { identity, exp: now + INTROSPECT_TTL_MS });
+    return identity;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Authenticate at the edge. Permissive by default (absent creds allowed, no
+ * identity); `FIDUCIA_AUTH_MODE=enforce` requires valid creds. Present-but-invalid
+ * is always rejected.
+ */
+export async function authenticate(request, env) {
+  const header = request.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const enforce = (env.FIDUCIA_AUTH_MODE ?? "").toLowerCase() === "enforce";
+  if (!token) {
+    return enforce ? { ok: false, status: 401, error: "authentication required" } : { ok: true, identity: null };
+  }
+  const identity = token.startsWith("fdc_") ? await introspectKey(token, env) : await verifyJwt(token, env);
+  return identity ? { ok: true, identity } : { ok: false, status: 401, error: "invalid credentials" };
 }
 
 /** Per-client/tenant API rate limit, to protect the cluster. TODO. */
