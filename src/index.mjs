@@ -411,6 +411,8 @@ export function headersForOrigin(sourceHeaders, identity) {
   for (const name of [
     "authorization",
     "x-api-key",
+    "cookie",
+    "proxy-authorization",
     "x-fiducia-auth-kind",
     "x-fiducia-org-id",
     "x-fiducia-key-id",
