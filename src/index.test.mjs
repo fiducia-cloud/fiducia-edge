@@ -100,6 +100,7 @@ test("headersForOrigin strips raw credentials and injects verified identity", ()
       "x-api-key": "fdc_live_id.secret",
       "x-fiducia-org-id": "spoofed",
       "x-fiducia-scopes": "spoofed",
+      "x-fiducia-internal-auth": "spoofed-trusted-hop",
       "x-request-id": "req_1",
     }),
     {
