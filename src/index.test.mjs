@@ -20,6 +20,21 @@ import {
 
 const req = (url, method = "GET") => new Request(url, { method });
 
+// Mint a real ES256 JWT with a fresh WebCrypto key; returns the token + public JWK.
+async function mintEs256(payload) {
+  const { publicKey, privateKey } = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const jwk = await crypto.subtle.exportKey("jwk", publicKey);
+  Object.assign(jwk, { kid: "test-kid", alg: "ES256", use: "sig" });
+  delete jwk.key_ops; delete jwk.ext;
+  const u = (s) => Buffer.from(s).toString("base64url");
+  const head = u(JSON.stringify({ alg: "ES256", kid: "test-kid", typ: "JWT" }));
+  const body = u(JSON.stringify(payload));
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" },
+    privateKey, new TextEncoder().encode(`${head}.${body}`));
+  return { token: `${head}.${body}.${Buffer.from(sig).toString("base64url")}`, jwk };
+}
+
 test("isCacheableRead: only an explicit, non-watch KV read is cacheable", () => {
   const base = "https://api.fiducia.cloud";
 
