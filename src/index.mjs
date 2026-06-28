@@ -264,6 +264,6 @@ export default {
     if (regions.length === 0) {
       return Response.json({ error: "no_regions_configured" }, { status: 503 });
     }
-    return forwardWithFailover(request, regions);
+    return forwardWithFailover(request, regions, authResult.identity);
   },
 };
