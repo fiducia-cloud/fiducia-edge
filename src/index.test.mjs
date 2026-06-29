@@ -137,11 +137,8 @@ test("headersForOrigin strips raw credentials and injects verified identity", ()
   assert.equal(headers.get("x-fiducia-org-id"), "org_1");
   assert.equal(headers.get("x-fiducia-key-id"), "key_1");
   assert.equal(headers.get("x-fiducia-scopes"), "kv:read locks:write");
-<<<<<<< HEAD
   assert.equal(headers.get("x-fiducia-internal-auth"), null);
-=======
   assert.equal(headers.get("idempotency-key"), "cust-key-1");
->>>>>>> origin/main
   assert.equal(headers.get("x-request-id"), "req_1");
 });
 
