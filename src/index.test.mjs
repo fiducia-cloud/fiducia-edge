@@ -71,6 +71,21 @@ test("pickRegions: preserves the configured primary→fallback order", () => {
   assert.deepEqual(pickRegions(req("https://api.fiducia.cloud/v1/status"), regions), regions);
 });
 
+test("pickRegions: prefers healthy nearby regions over unhealthy primaries", () => {
+  const request = req("https://api.fiducia.cloud/v1/status");
+  request.cf = { continent: "EU" };
+  const regions = [
+    { name: "us-east", url: "https://us", continent: "NA" },
+    { name: "eu-west", url: "https://eu", continent: "EU" },
+    { name: "eu-down", url: "https://down", continent: "EU" },
+  ];
+
+  assert.deepEqual(
+    pickRegions(request, regions, { "eu-down": "unhealthy" }).map((region) => region.name),
+    ["eu-west", "us-east", "eu-down"],
+  );
+});
+
 test("extractCredential accepts bearer or x-api-key", () => {
   assert.equal(
     extractCredential(new Request("https://api.fiducia.cloud/v1/status", {
@@ -98,9 +113,12 @@ test("headersForOrigin strips raw credentials and injects verified identity", ()
     new Headers({
       authorization: "Bearer fdc_live_id.secret",
       "x-api-key": "fdc_live_id.secret",
+      cookie: "sb-access-token=secret",
+      "proxy-authorization": "Basic secret",
       "x-fiducia-org-id": "spoofed",
       "x-fiducia-scopes": "spoofed",
       "x-fiducia-internal-auth": "spoofed-trusted-hop",
+      "idempotency-key": "cust-key-1",
       "x-request-id": "req_1",
     }),
     {
@@ -113,12 +131,51 @@ test("headersForOrigin strips raw credentials and injects verified identity", ()
 
   assert.equal(headers.get("authorization"), null);
   assert.equal(headers.get("x-api-key"), null);
+  assert.equal(headers.get("cookie"), null);
+  assert.equal(headers.get("proxy-authorization"), null);
   assert.equal(headers.get("x-fiducia-auth-kind"), "api_key");
   assert.equal(headers.get("x-fiducia-org-id"), "org_1");
   assert.equal(headers.get("x-fiducia-key-id"), "key_1");
   assert.equal(headers.get("x-fiducia-scopes"), "kv:read locks:write");
   assert.equal(headers.get("x-fiducia-internal-auth"), null);
+  assert.equal(headers.get("idempotency-key"), "cust-key-1");
   assert.equal(headers.get("x-request-id"), "req_1");
+});
+
+test("checkAuth rejects missing credentials when auth is required", async () => {
+  const auth = await checkAuth(
+    new Request("https://api.fiducia.cloud/v1/kv?key=x"),
+    { FIDUCIA_AUTH_REQUIRED: "true" },
+  );
+
+  assert.equal(auth.ok, false);
+  assert.equal(auth.response.status, 401);
+  assert.equal((await auth.response.json()).error, "missing_credentials");
+});
+
+test("checkAuth rejects disabled API keys without introspection", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("introspection must not be called");
+  };
+
+  try {
+    const auth = await checkAuth(
+      new Request("https://api.fiducia.cloud/v1/kv?key=x", {
+        headers: { authorization: "Bearer fdc_live_disabled.secret" },
+      }),
+      {
+        FIDUCIA_AUTH_REQUIRED: "true",
+        FIDUCIA_AUTH_ALLOW_API_KEYS: "false",
+      },
+    );
+
+    assert.equal(auth.ok, false);
+    assert.equal(auth.response.status, 401);
+    assert.equal((await auth.response.json()).error, "api_keys_disabled");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("checkAuth introspects API keys once and then serves from cache", async () => {
