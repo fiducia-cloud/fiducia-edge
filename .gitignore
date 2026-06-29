@@ -7,3 +7,6 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+
+# Scratch / git worktrees (tmp/worktrees/*)
+tmp/

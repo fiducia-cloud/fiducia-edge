@@ -415,6 +415,8 @@ export function headersForOrigin(sourceHeaders, identity) {
     "x-fiducia-org-id",
     "x-fiducia-key-id",
     "x-fiducia-scopes",
+    // Trusted-hop secret between the LB and nodes; a client must never inject it.
+    "x-fiducia-internal-auth",
   ]) {
     headers.delete(name);
   }
