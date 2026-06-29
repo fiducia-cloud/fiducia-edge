@@ -67,7 +67,9 @@ Config:
 
 The Worker strips `Authorization`, `x-api-key`, and caller-supplied
 `x-fiducia-*` identity headers before forwarding. Regional LBs and nodes should
-trust only the identity headers injected by the edge/LB boundary.
+trust only the identity headers injected by the edge/LB boundary. The Worker
+does preserve `Idempotency-Key`; the regional LB consumes that customer header,
+hashes it into an internal idempotency record, and strips it before the node hop.
 
 Optionally add a `FIDUCIA_CONFIG` KV namespace for live health/routing.
 

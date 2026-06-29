@@ -14,6 +14,6 @@
     "@fiducia/interfaces": "file:../fiducia-interfaces"
   },
   "devDependencies": {
-    "wrangler": "^3"
+    "wrangler": "^4.105.0"
   }
 }
