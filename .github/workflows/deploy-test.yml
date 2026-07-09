@@ -33,7 +33,7 @@ jobs:
         with:
           repository: fiducia-cloud/fiducia-interfaces
           path: fiducia-interfaces
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - name: deploy to test
