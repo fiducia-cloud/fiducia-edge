@@ -1,3 +1,4 @@
+# Cloudflare Wrangler config: Worker name, entry point, and deploy settings.
 name = "fiducia-edge"
 main = "src/index.mjs"
 compatibility_date = "2026-06-01"
