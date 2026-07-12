@@ -257,7 +257,7 @@ export function isCacheableRead(request) {
 }
 
 /** Forward to the first region that answers; fail over to the next on 5xx/error. */
-async function forwardWithFailover(request, regions, auth) {
+async function forwardWithFailover(request, regions, auth, env) {
   const url = new URL(request.url);
   // Buffer the body once so we can retry against another region.
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
@@ -266,7 +266,7 @@ async function forwardWithFailover(request, regions, auth) {
   let lastErr = "no regions configured";
   for (const region of regions) {
     const target = new URL(url.pathname + url.search, region.url);
-    const headers = headersForOrigin(request.headers, auth?.identity ?? null);
+    const headers = headersForOrigin(request.headers, auth?.identity ?? null, env);
     headers.set("x-fiducia-edge-region", region.name);
     try {
       const resp = await fetch(target, {
