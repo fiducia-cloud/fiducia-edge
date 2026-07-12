@@ -406,7 +406,7 @@ function cacheTtlSeconds(request, env) {
   return Math.max(1, Math.min(ttl, maxTtl));
 }
 
-export function headersForOrigin(sourceHeaders, identity) {
+export function headersForOrigin(sourceHeaders, identity, env) {
   const headers = new Headers(sourceHeaders);
   for (const name of [
     "authorization",
@@ -417,7 +417,9 @@ export function headersForOrigin(sourceHeaders, identity) {
     "x-fiducia-org-id",
     "x-fiducia-key-id",
     "x-fiducia-scopes",
-    // Trusted-hop secret between the LB and nodes; a client must never inject it.
+    // Trusted-hop secrets a client must never inject: the edge→LB proof
+    // (`x-fiducia-edge-auth`) and the LB→node proof (`x-fiducia-internal-auth`).
+    "x-fiducia-edge-auth",
     "x-fiducia-internal-auth",
   ]) {
     headers.delete(name);
@@ -428,6 +430,12 @@ export function headersForOrigin(sourceHeaders, identity) {
     headers.set("x-fiducia-org-id", identity.orgId);
     headers.set("x-fiducia-scopes", identity.scopes.join(" "));
     if (identity.keyId) headers.set("x-fiducia-key-id", identity.keyId);
+    // Prove this identity was verified by the edge: the LB trusts the forwarded
+    // `x-fiducia-*` identity ONLY when this shared secret (the same
+    // `FIDUCIA_INTERNAL_SECRET` the cluster already shares) is present and valid.
+    // Never logged.
+    const edgeSecret = env?.FIDUCIA_INTERNAL_SECRET;
+    if (edgeSecret) headers.set("x-fiducia-edge-auth", edgeSecret);
   }
 
   return headers;
