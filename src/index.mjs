@@ -328,7 +328,7 @@ export default {
     if (regions.length === 0) {
       return Response.json({ error: "no_regions_configured" }, { status: 503 });
     }
-    const response = await forwardWithFailover(request, regions, auth);
+    const response = await forwardWithFailover(request, regions, auth, env);
     if (cacheKey && response.ok) {
       const ttl = cacheTtlSeconds(request, env);
       const cachedResponse = new Response(response.clone().body, response);
