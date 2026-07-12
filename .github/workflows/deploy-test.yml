@@ -26,14 +26,14 @@ jobs:
     steps:
       # Worker code + the sibling file:../ dep (@fiducia/interfaces) that npm ci
       # resolves -- mirrors ci.yml's checkout layout.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: repo
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: fiducia-cloud/fiducia-interfaces
           path: fiducia-interfaces
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - name: deploy to test
