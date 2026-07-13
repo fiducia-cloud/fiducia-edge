@@ -139,7 +139,9 @@ async function checkApiKey(apiKey, env) {
       body: JSON.stringify({ api_key: apiKey }),
     });
   } catch (err) {
-    return authFailure(503, "auth_unavailable", `auth service unavailable: ${err}`);
+    // Log the upstream detail server-side only; never echo it to the client.
+    console.warn("api-key introspection request failed:", err);
+    return authFailure(503, "auth_unavailable", "auth service unavailable");
   }
 
   if (!response.ok) {
@@ -197,7 +199,9 @@ async function verifyFiduciaJwt(jwt, env) {
     return { ok: true, identity, cache: "miss" };
   } catch (err) {
     setCachedAuth(cacheKey, null, envNumber(env, "FIDUCIA_AUTH_NEGATIVE_CACHE_TTL_SECONDS", DEFAULT_NEGATIVE_AUTH_CACHE_TTL_SECONDS));
-    return authFailure(401, "invalid_jwt", `invalid or expired jwt: ${err.message}`);
+    // Log the verification detail server-side only; never echo it to the client.
+    console.warn("jwt verification failed:", err && err.message ? err.message : err);
+    return authFailure(401, "invalid_jwt", "invalid or expired jwt");
   }
 }
 
