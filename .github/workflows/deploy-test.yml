@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: fiducia-cloud/fiducia-interfaces
-          ref: bbd8b52ce729ec34b0a9bff4dda6d0a448181797
+          ref: 5f2c5279ee19941024455b2843256872485bac82
           path: fiducia-interfaces
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
