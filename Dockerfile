@@ -24,7 +24,7 @@ RUN test "${#INTERFACES_REF}" -eq 40 \
 WORKDIR /build/fiducia-edge
 COPY package.json package-lock.json wrangler.toml ./
 # Deterministic, lockfile-pinned install with the exact sibling contract above.
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY src src
 RUN npm run check
 
