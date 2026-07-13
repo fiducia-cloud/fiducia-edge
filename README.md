@@ -49,11 +49,30 @@ shard-agnostic: it forwards to a region's load balancer, which owns
 ## Develop & deploy
 
 ```bash
-npm install
+npm ci            # installs exactly package-lock.json
 npm run check     # node --check (syntax)
 npm run dev       # wrangler dev (local edge)
 npm run deploy    # wrangler deploy
 ```
+
+`@fiducia/interfaces` is a sibling `file:../fiducia-interfaces` dependency. CI
+checks out that package at the full immutable commit
+`bbd8b52ce729ec34b0a9bff4dda6d0a448181797`; dependency updates must change the
+pin explicitly. The Docker builder uses the same commit as its default
+`INTERFACES_REF`, verifies the resulting checkout against the full SHA, and
+runs `npm ci`. Override the argument only with another complete commit ID:
+
+```bash
+docker build \
+  --build-arg INTERFACES_REF=bbd8b52ce729ec34b0a9bff4dda6d0a448181797 \
+  -t fiducia-edge .
+```
+
+The builder and deploy stages use `node:24-slim`. Git and checkout metadata stay
+in the builder; the deploy image contains only the clean interfaces tree, the
+lockfile-installed Worker tooling, and source needed by Wrangler. It is a deploy
+tool, not a long-running edge server, runs as the image's unprivileged `node`
+user, and expects Cloudflare credentials only at deployment time.
 
 Config:
 
