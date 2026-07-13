@@ -57,7 +57,7 @@ npm run deploy    # wrangler deploy
 
 `@fiducia/interfaces` is a sibling `file:../fiducia-interfaces` dependency. CI
 checks out that package at the full immutable commit
-`5f2c5279ee19941024455b2843256872485bac82`; dependency updates must change the
+`487e470c45ab5851e8f6f3b1dc048fe067fbf408`; dependency updates must change the
 pin explicitly. The Docker builder uses the same commit as its default
 `INTERFACES_REF`, verifies the resulting checkout against the full SHA, and
 runs `npm ci --ignore-scripts`. Override the argument only with another complete commit ID:

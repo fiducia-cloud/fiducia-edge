@@ -4,7 +4,7 @@ FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6c
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git
 
-ARG INTERFACES_REF=5f2c5279ee19941024455b2843256872485bac82
+ARG INTERFACES_REF=487e470c45ab5851e8f6f3b1dc048fe067fbf408
 WORKDIR /build
 # package-lock.json resolves @fiducia/interfaces through
 # file:../fiducia-interfaces. Fetch only the requested immutable commit, then
