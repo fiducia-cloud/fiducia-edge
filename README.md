@@ -49,7 +49,7 @@ shard-agnostic: it forwards to a region's load balancer, which owns
 ## Develop & deploy
 
 ```bash
-npm ci            # installs exactly package-lock.json
+npm ci --ignore-scripts # installs exactly package-lock.json without dependency hooks
 npm run check     # node --check (syntax)
 npm run dev       # wrangler dev (local edge)
 npm run deploy    # wrangler deploy
@@ -60,7 +60,7 @@ checks out that package at the full immutable commit
 `bbd8b52ce729ec34b0a9bff4dda6d0a448181797`; dependency updates must change the
 pin explicitly. The Docker builder uses the same commit as its default
 `INTERFACES_REF`, verifies the resulting checkout against the full SHA, and
-runs `npm ci`. Override the argument only with another complete commit ID:
+runs `npm ci --ignore-scripts`. Override the argument only with another complete commit ID:
 
 ```bash
 docker build \

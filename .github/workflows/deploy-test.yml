@@ -2,7 +2,7 @@
 #
 # Required secrets (repo Settings -> Secrets and variables -> Actions):
 #   CLOUDFLARE_API_TOKEN   Cloudflare API token with Workers Scripts:Edit scope.
-#                          When absent, this workflow is a no-op (validation-only).
+#                          Missing credentials fail the deployment job.
 #   CLOUDFLARE_ACCOUNT_ID  (optional) Cloudflare account id, if wrangler cannot
 #                          infer it from the token.
 #
@@ -42,6 +42,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "no CLOUDFLARE_API_TOKEN secret — skipping test deploy (validation-only)"; exit 0; fi
-          npm ci
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npm ci --ignore-scripts
           npm run deploy
