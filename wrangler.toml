@@ -22,10 +22,16 @@ FIDUCIA_JWT_AUDIENCE = "fiducia-api"
 # binding = "FIDUCIA_CONFIG"
 # id = "<kv-namespace-id>"
 
-# Optional: precise distributed rate limiting at the edge.
-# [[durable_objects.bindings]]
-# name = "RATE_LIMITER"
-# class_name = "RateLimiter"
+# Atomic distributed rate limiting. Keep this binding whenever
+# FIDUCIA_RATE_LIMIT_PER_MINUTE is greater than zero; the Worker fails closed if
+# a positive limit is configured without the Durable Object.
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1-rate-limiter"
+new_sqlite_classes = ["RateLimiter"]
 
 # Optional: if the edge ever needs key→shard, ship the fiducia-routing crate as
 # WASM instead of reimplementing the hash in JS.

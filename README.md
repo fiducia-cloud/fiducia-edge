@@ -17,11 +17,13 @@ shard-agnostic: it forwards to a region's load balancer, which owns
 ## What the edge does
 
 - **Region selection** — pick the healthiest/nearest region's LB (using
-  `request.cf` geo + a health view); fail over to the next region on 5xx/error.
+  `request.cf` geo + a health view). Reads may fail over to the next region on
+  5xx/error; mutations never auto-replay after an ambiguous response.
 - **Auth** — validate Fiducia API keys through `fiducia-auth` once, cache the
   introspection result briefly, verify Fiducia JWTs offline via JWKS, and reject
   early before the cluster.
-- **Rate limiting** — per-client/tenant quotas to shield the cluster.
+- **Rate limiting** — atomic per-client/tenant quotas through a Durable Object;
+  a configured positive limit fails closed if that binding is unavailable.
 - **DDoS / WAF / TLS** — handled natively by Cloudflare in front of the Worker.
 - **Opt-in read caching** — only for explicitly cacheable config reads
   (`GET /v1/kv/...?cache=...`). **Never** caches writes or locks.
@@ -64,6 +66,10 @@ Config:
 - `FIDUCIA_AUTH_JWKS_TTL_SECONDS` — Fiducia JWT JWKS cache TTL.
 - `FIDUCIA_AUTH_JWT_CACHE_TTL_SECONDS` — verified JWT decision cache TTL.
 - `FIDUCIA_JWT_ISSUER` / `FIDUCIA_JWT_AUDIENCE` — expected Fiducia JWT claims.
+- `FIDUCIA_RATE_LIMIT_PER_MINUTE` / `FIDUCIA_RATE_LIMIT_WINDOW_SECONDS` — atomic
+  quota and window. A positive limit requires the `RATE_LIMITER` Durable Object
+  binding declared in `wrangler.toml`; KV is intentionally not used for counters
+  because read/modify/write is not atomic.
 
 The Worker strips `Authorization`, `x-api-key`, and caller-supplied
 `x-fiducia-*` identity headers before forwarding. Regional LBs and nodes should
@@ -86,10 +92,17 @@ Optionally add a `FIDUCIA_CONFIG` KV namespace for live health/routing.
   operator-configured `FIDUCIA_REGIONS` (or `FIDUCIA_CONFIG` KV) origins — never
   from client input — and upstream responses use `redirect: "manual"`, so the
   edge never follows a redirect to an attacker-chosen host.
+- **No ambiguous write replay.** Cross-region retries are restricted to
+  `GET`/`HEAD`/`OPTIONS`. A mutation timeout returns
+  `502 ambiguous_upstream_result`; the client may retry with the same
+  `Idempotency-Key` so the regional LB can replay its durable result.
 - **Auth at the edge.** API keys are introspected against `fiducia-auth` (with
   short positive/negative caching); JWTs are verified offline against JWKS with
   `RS256`/`ES256` only, plus issuer/audience/expiry checks. Per-tenant rate
   limiting shields the cluster.
+- **Atomic quotas.** Rate-limit increments execute in a Durable Object storage
+  transaction. Cloudflare KV is never used as a counter; if a positive quota is
+  configured but the object cannot be reached, requests fail closed with 503.
 - **Secrets are Worker secrets, never logged.** `FIDUCIA_INTERNAL_SECRET` and
   `FIDUCIA_INTROSPECT_SECRET` are injected as Wrangler secrets (not committed to
   `wrangler.toml`) and are never written to logs or responses. Credentials are
