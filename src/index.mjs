@@ -257,7 +257,7 @@ export function isCacheableRead(request) {
 }
 
 /** Forward to the first region that answers; fail over to the next on 5xx/error. */
-async function forwardWithFailover(request, regions, auth) {
+async function forwardWithFailover(request, regions, auth, env) {
   const url = new URL(request.url);
   // Buffer the body once so we can retry against another region.
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
@@ -266,7 +266,7 @@ async function forwardWithFailover(request, regions, auth) {
   let lastErr = "no regions configured";
   for (const region of regions) {
     const target = new URL(url.pathname + url.search, region.url);
-    const headers = headersForOrigin(request.headers, auth?.identity ?? null);
+    const headers = headersForOrigin(request.headers, auth?.identity ?? null, env);
     headers.set("x-fiducia-edge-region", region.name);
     try {
       const resp = await fetch(target, {
@@ -328,7 +328,7 @@ export default {
     if (regions.length === 0) {
       return Response.json({ error: "no_regions_configured" }, { status: 503 });
     }
-    const response = await forwardWithFailover(request, regions, auth);
+    const response = await forwardWithFailover(request, regions, auth, env);
     if (cacheKey && response.ok) {
       const ttl = cacheTtlSeconds(request, env);
       const cachedResponse = new Response(response.clone().body, response);
@@ -406,7 +406,7 @@ function cacheTtlSeconds(request, env) {
   return Math.max(1, Math.min(ttl, maxTtl));
 }
 
-export function headersForOrigin(sourceHeaders, identity) {
+export function headersForOrigin(sourceHeaders, identity, env) {
   const headers = new Headers(sourceHeaders);
   for (const name of [
     "authorization",
@@ -417,7 +417,9 @@ export function headersForOrigin(sourceHeaders, identity) {
     "x-fiducia-org-id",
     "x-fiducia-key-id",
     "x-fiducia-scopes",
-    // Trusted-hop secret between the LB and nodes; a client must never inject it.
+    // Trusted-hop secrets a client must never inject: the edge→LB proof
+    // (`x-fiducia-edge-auth`) and the LB→node proof (`x-fiducia-internal-auth`).
+    "x-fiducia-edge-auth",
     "x-fiducia-internal-auth",
   ]) {
     headers.delete(name);
@@ -428,6 +430,12 @@ export function headersForOrigin(sourceHeaders, identity) {
     headers.set("x-fiducia-org-id", identity.orgId);
     headers.set("x-fiducia-scopes", identity.scopes.join(" "));
     if (identity.keyId) headers.set("x-fiducia-key-id", identity.keyId);
+    // Prove this identity was verified by the edge: the LB trusts the forwarded
+    // `x-fiducia-*` identity ONLY when this shared secret (the same
+    // `FIDUCIA_INTERNAL_SECRET` the cluster already shares) is present and valid.
+    // Never logged.
+    const edgeSecret = env?.FIDUCIA_INTERNAL_SECRET;
+    if (edgeSecret) headers.set("x-fiducia-edge-auth", edgeSecret);
   }
 
   return headers;

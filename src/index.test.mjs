@@ -142,6 +142,38 @@ test("headersForOrigin strips raw credentials and injects verified identity", ()
   assert.equal(headers.get("x-request-id"), "req_1");
 });
 
+test("headersForOrigin sets the edge->LB secret and strips a spoofed copy", () => {
+  const headers = headersForOrigin(
+    new Headers({
+      // A client tries to forge the trusted-hop proof; it must be dropped and
+      // replaced with the edge's own secret alongside the verified identity.
+      "x-fiducia-edge-auth": "spoofed-edge-secret",
+    }),
+    {
+      kind: "api_key",
+      orgId: "org_1",
+      keyId: "key_1",
+      scopes: ["kv:write"],
+    },
+    { FIDUCIA_INTERNAL_SECRET: "real-edge-secret" },
+  );
+
+  assert.equal(headers.get("x-fiducia-edge-auth"), "real-edge-secret");
+  assert.equal(headers.get("x-fiducia-org-id"), "org_1");
+});
+
+test("headersForOrigin omits the edge->LB secret when none is configured", () => {
+  const headers = headersForOrigin(
+    new Headers({ "x-fiducia-edge-auth": "spoofed-edge-secret" }),
+    { kind: "api_key", orgId: "org_1", keyId: null, scopes: [] },
+    {},
+  );
+
+  // No secret configured → the spoofed client copy is still stripped and no
+  // trusted-hop header is emitted, so the LB treats the request as anonymous.
+  assert.equal(headers.get("x-fiducia-edge-auth"), null);
+});
+
 test("checkAuth rejects missing credentials when auth is required", async () => {
   const auth = await checkAuth(
     new Request("https://api.fiducia.cloud/v1/kv?key=x"),
