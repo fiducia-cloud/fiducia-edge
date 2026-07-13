@@ -109,11 +109,11 @@ Optionally add a `FIDUCIA_CONFIG` KV namespace for live health/routing.
   cached by SHA-256 hash, never in cleartext. `npm audit --omit=dev` reports 0
   vulnerabilities.
 
-> Note (non-blocking): a few `authFailure` paths echo the upstream error string
-> (`auth service unavailable: <err>`, `invalid or expired jwt: <msg>`) to the
-> client. These are low-signal but could be tightened to avoid surfacing any
-> internal detail; tracked as a follow-up, not applied here to avoid changing
-> response contracts.
+- **Auth failures never leak upstream detail.** `authFailure` responses return
+  a generic client message (`auth service unavailable`, `invalid or expired
+  jwt`) with unchanged status codes. The underlying exception/upstream detail is
+  logged server-side via `console.warn` only, never interpolated into the client
+  response, so introspection/JWKS internals are not surfaced to callers.
 
 ## Related
 
