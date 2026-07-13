@@ -73,6 +73,35 @@ hashes it into an internal idempotency record, and strips it before the node hop
 
 Optionally add a `FIDUCIA_CONFIG` KV namespace for live health/routing.
 
+## Security posture
+
+- **Identity-header stripping.** Before forwarding, the Worker deletes
+  caller-supplied `Authorization`, `x-api-key`, `cookie`, `proxy-authorization`,
+  and every `x-fiducia-*` identity/trust header (including the internal
+  `x-fiducia-edge-auth` / `x-fiducia-internal-auth` hop proofs), then re-injects
+  only the identity it verified. Downstream LBs/nodes trust `x-fiducia-*` only
+  when the shared `FIDUCIA_INTERNAL_SECRET` proof is present, so a client cannot
+  spoof identity.
+- **No SSRF / no open redirect.** Forward targets are built only from the
+  operator-configured `FIDUCIA_REGIONS` (or `FIDUCIA_CONFIG` KV) origins — never
+  from client input — and upstream responses use `redirect: "manual"`, so the
+  edge never follows a redirect to an attacker-chosen host.
+- **Auth at the edge.** API keys are introspected against `fiducia-auth` (with
+  short positive/negative caching); JWTs are verified offline against JWKS with
+  `RS256`/`ES256` only, plus issuer/audience/expiry checks. Per-tenant rate
+  limiting shields the cluster.
+- **Secrets are Worker secrets, never logged.** `FIDUCIA_INTERNAL_SECRET` and
+  `FIDUCIA_INTROSPECT_SECRET` are injected as Wrangler secrets (not committed to
+  `wrangler.toml`) and are never written to logs or responses. Credentials are
+  cached by SHA-256 hash, never in cleartext. `npm audit --omit=dev` reports 0
+  vulnerabilities.
+
+> Note (non-blocking): a few `authFailure` paths echo the upstream error string
+> (`auth service unavailable: <err>`, `invalid or expired jwt: <msg>`) to the
+> client. These are low-signal but could be tightened to avoid surfacing any
+> internal detail; tracked as a follow-up, not applied here to avoid changing
+> response contracts.
+
 ## Related
 
 - [`fiducia-load-balance.rs`](https://github.com/fiducia-cloud/fiducia-load-balance.rs) — the regional LB this forwards to.
