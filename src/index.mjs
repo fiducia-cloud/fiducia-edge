@@ -145,7 +145,10 @@ async function checkApiKey(apiKey, env) {
   }
 
   if (!response.ok) {
-    return authFailure(503, "auth_unavailable", `auth service returned ${response.status}`);
+    // Log the upstream status server-side only; never echo it to the client (same
+    // rule the transport-error branch above and the LB's auth path already follow).
+    console.warn("api-key introspection returned non-ok status:", response.status);
+    return authFailure(503, "auth_unavailable", "auth service unavailable");
   }
 
   const intro = await response.json();
