@@ -340,6 +340,33 @@ test("checkAuth rejects disabled API keys without introspection", async () => {
   }
 });
 
+test("checkAuth returns a generic 503 without leaking the upstream auth status", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  globalThis.fetch = async () => new Response("boom", { status: 500 });
+  console.warn = () => {}; // silence the expected server-side log line
+
+  try {
+    const auth = await checkAuth(
+      new Request("https://api.fiducia.cloud/v1/kv?key=x", {
+        headers: { authorization: "Bearer fdc_live_upstream.secret" },
+      }),
+      { FIDUCIA_AUTH_REQUIRED: "true", FIDUCIA_AUTH_URL: "https://auth.test" },
+    );
+
+    assert.equal(auth.ok, false);
+    assert.equal(auth.response.status, 503);
+    const body = await auth.response.json();
+    assert.equal(body.error, "auth_unavailable");
+    // The client-facing detail must not disclose the upstream auth status code.
+    assert.equal(body.detail, "auth service unavailable");
+    assert.ok(!JSON.stringify(body).includes("500"), "must not leak upstream status");
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
 test("checkAuth introspects API keys once and then serves from cache", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
