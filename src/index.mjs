@@ -19,8 +19,8 @@
  *     still has to reach the shard leader + a quorum. Edge != consensus.
  *
  * Region selection, failover forwarding, auth, rate limiting, live region
- * health, and opt-in read caching are wired. Bind KV namespaces for live config
- * (`FIDUCIA_CONFIG`) and rate limiting (`FIDUCIA_RATE_LIMIT_KV`) when deployed.
+ * health, and opt-in read caching are wired. Bind KV for live config
+ * (`FIDUCIA_CONFIG`) and a Durable Object (`RATE_LIMITER`) for atomic rate limits.
  */
 
 /**
@@ -201,11 +201,14 @@ async function verifyFiduciaJwt(jwt, env) {
   }
 }
 
-/** Per-client/tenant API rate limit, to protect the cluster. */
+/** Atomic per-client/tenant API rate limit, backed by one Durable Object per subject. */
 export async function checkRateLimit(request, env, identity = null) {
   const limit = envNumber(env, "FIDUCIA_RATE_LIMIT_PER_MINUTE", 0);
-  if (limit <= 0 || !env.FIDUCIA_RATE_LIMIT_KV) {
+  if (limit <= 0) {
     return { ok: true, remaining: null };
+  }
+  if (!env.RATE_LIMITER?.idFromName || !env.RATE_LIMITER?.get) {
+    return { ok: false, configurationError: true };
   }
 
   const windowSeconds = envNumber(
@@ -214,28 +217,53 @@ export async function checkRateLimit(request, env, identity = null) {
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
   );
   const now = nowSeconds();
-  const windowId = Math.floor(now / windowSeconds);
   const subject = identity?.orgId
     || extractCredential(request)
     || request.headers.get("cf-connecting-ip")
     || "anonymous";
-  const key = `rl:${await toSha256Hex(subject)}:${windowId}`;
-  const current = Number(await env.FIDUCIA_RATE_LIMIT_KV.get(key) || "0");
-  if (current >= limit) {
-    return {
-      ok: false,
-      remaining: 0,
-      resetSeconds: (windowId + 1) * windowSeconds - now,
-    };
+  const id = env.RATE_LIMITER.idFromName(await toSha256Hex(subject));
+  const stub = env.RATE_LIMITER.get(id);
+  try {
+    const response = await stub.fetch("https://rate-limiter.internal/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit, windowSeconds, now }),
+    });
+    if (!response.ok) return { ok: false, configurationError: true };
+    return await response.json();
+  } catch {
+    return { ok: false, configurationError: true };
   }
-  await env.FIDUCIA_RATE_LIMIT_KV.put(String(key), String(current + 1), {
-    expirationTtl: Math.max(1, windowSeconds + 5),
-  });
-  return {
-    ok: true,
-    remaining: Math.max(0, limit - current - 1),
-    resetSeconds: (windowId + 1) * windowSeconds - now,
-  };
+}
+
+/** Durable Object implementation: storage transaction makes increment atomic. */
+export class RateLimiter {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    const { limit, windowSeconds, now } = await request.json();
+    if (![limit, windowSeconds, now].every(Number.isFinite) || limit <= 0 || windowSeconds <= 0) {
+      return Response.json({ error: "invalid_rate_limit_config" }, { status: 400 });
+    }
+    const windowId = Math.floor(now / windowSeconds);
+    const resetSeconds = (windowId + 1) * windowSeconds - now;
+    const result = await this.state.storage.transaction(async (txn) => {
+      const record = await txn.get("counter");
+      const current = record?.windowId === windowId ? Number(record.count) : 0;
+      if (current >= limit) return { ok: false, remaining: 0, resetSeconds };
+      const next = current + 1;
+      await txn.put("counter", { windowId, count: next });
+      return { ok: true, remaining: Math.max(0, limit - next), resetSeconds };
+    });
+    await this.state.storage.setAlarm((windowId + 2) * windowSeconds * 1000);
+    return Response.json(result, { status: result.ok ? 200 : 429 });
+  }
+
+  async alarm() {
+    await this.state.storage.deleteAll();
+  }
 }
 
 /**
@@ -256,8 +284,17 @@ export function isCacheableRead(request) {
   );
 }
 
-/** Forward to the first region that answers; fail over to the next on 5xx/error. */
-async function forwardWithFailover(request, regions, auth, env) {
+/** Only methods with no mutation semantics can be replayed after a lost response. */
+export function isReplaySafeMethod(method) {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
+
+/**
+ * Forward through configured regions. Reads may fail over after 5xx/transport
+ * failure. Mutations use one region only: after a timeout the edge cannot know
+ * whether the regional LB committed, so replaying elsewhere could duplicate it.
+ */
+export async function forwardWithFailover(request, regions, auth, env) {
   const url = new URL(request.url);
   // Buffer the body once so we can retry against another region.
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
@@ -275,13 +312,23 @@ async function forwardWithFailover(request, regions, auth, env) {
         body,
         redirect: "manual", // let the LB/node own NotLeader redirects internally
       });
-      // A region-level failure (5xx, but not a deliberate 501 capability response) -> next region.
-      if (resp.status >= 500 && resp.status !== 501) {
+      // A read-only region failure may safely try another origin. A mutation's
+      // HTTP response is returned as-is; even a 5xx can follow a committed write.
+      if (isReplaySafeMethod(request.method) && resp.status >= 500 && resp.status !== 501) {
         lastErr = `region ${region.name} -> ${resp.status}`;
         continue;
       }
       return resp;
     } catch (e) {
+      if (!isReplaySafeMethod(request.method)) {
+        return Response.json(
+          {
+            error: "ambiguous_upstream_result",
+            detail: "the mutation may have committed; retry only with the same Idempotency-Key",
+          },
+          { status: 502 },
+        );
+      }
       lastErr = `region ${region.name} unreachable: ${e}`;
     }
   }
@@ -304,6 +351,9 @@ export default {
     }
     const rate = await checkRateLimit(request, env, auth.identity);
     if (!rate.ok) {
+      if (rate.configurationError) {
+        return Response.json({ error: "rate_limiter_unavailable" }, { status: 503 });
+      }
       return Response.json(
         { error: "rate_limited", reset_seconds: rate.resetSeconds },
         { status: 429 },

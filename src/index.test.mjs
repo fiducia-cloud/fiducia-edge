@@ -9,16 +9,109 @@ import assert from "node:assert/strict";
 
 import {
   checkAuth,
+  checkRateLimit,
   extractCredential,
+  forwardWithFailover,
   headersForOrigin,
   isApiKeyCredential,
   isCacheableRead,
+  isReplaySafeMethod,
   loadRegions,
   looksLikeJwt,
   pickRegions,
+  RateLimiter,
 } from "./index.mjs";
 
 const req = (url, method = "GET") => new Request(url, { method });
+
+test("only read-only methods are replay-safe across regions", () => {
+  for (const method of ["GET", "HEAD", "OPTIONS"]) {
+    assert.equal(isReplaySafeMethod(method), true);
+  }
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    assert.equal(isReplaySafeMethod(method), false);
+  }
+});
+
+test("configured rate limiting fails closed without its Durable Object binding", async () => {
+  const result = await checkRateLimit(
+    new Request("https://api.example/v1/kv?key=x"),
+    { FIDUCIA_RATE_LIMIT_PER_MINUTE: "1" },
+  );
+  assert.deepEqual(result, { ok: false, configurationError: true });
+});
+
+test("Durable Object rate-limit increments are serialized", async () => {
+  let counter;
+  let transactionTail = Promise.resolve();
+  const storage = {
+    transaction(fn) {
+      const run = transactionTail.then(() => fn({
+        get: async () => counter,
+        put: async (_key, value) => { counter = value; },
+      }));
+      transactionTail = run.then(() => undefined, () => undefined);
+      return run;
+    },
+    setAlarm: async () => {},
+    deleteAll: async () => { counter = undefined; },
+  };
+  const limiter = new RateLimiter({ storage });
+  const request = () => new Request("https://rate-limiter.internal/check", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ limit: 1, windowSeconds: 60, now: 120 }),
+  });
+
+  const responses = await Promise.all([limiter.fetch(request()), limiter.fetch(request())]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 429]);
+});
+
+test("read failover advances regions but mutation transport failure does not replay", async () => {
+  const originalFetch = globalThis.fetch;
+  const regions = [
+    { name: "first", url: "https://first.example" },
+    { name: "second", url: "https://second.example" },
+  ];
+  const env = {};
+
+  try {
+    const readTargets = [];
+    globalThis.fetch = async (target) => {
+      readTargets.push(String(target));
+      if (readTargets.length === 1) throw new Error("timeout");
+      return Response.json({ value: "ok" });
+    };
+    const read = await forwardWithFailover(
+      new Request("https://api.example/v1/kv?key=x"),
+      regions,
+      null,
+      env,
+    );
+    assert.equal(read.status, 200);
+    assert.equal(readTargets.length, 2);
+
+    const writeTargets = [];
+    globalThis.fetch = async (target) => {
+      writeTargets.push(String(target));
+      throw new Error("response lost after send");
+    };
+    const write = await forwardWithFailover(
+      new Request("https://api.example/v1/kv?key=x", {
+        method: "PUT",
+        body: JSON.stringify({ value: "new" }),
+      }),
+      regions,
+      null,
+      env,
+    );
+    assert.equal(write.status, 502);
+    assert.equal((await write.json()).error, "ambiguous_upstream_result");
+    assert.equal(writeTargets.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 // Mint a real ES256 JWT with a fresh WebCrypto key; returns the token + public JWK.
 async function mintEs256(payload) {
