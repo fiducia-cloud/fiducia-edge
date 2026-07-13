@@ -336,7 +336,14 @@ export async function forwardWithFailover(request, regions, auth, env) {
       lastErr = `region ${region.name} unreachable: ${e}`;
     }
   }
-  return Response.json({ error: "no_region", detail: lastErr }, { status: 502 });
+  // Log the region-by-region failure detail server-side only; never echo the
+  // internal region names or transport error text to the client (same rule the
+  // auth paths already follow — clients get a generic message, operators get logs).
+  console.warn("forwardWithFailover exhausted all regions:", lastErr);
+  return Response.json(
+    { error: "no_region", detail: "no healthy region could serve the request" },
+    { status: 502 },
+  );
 }
 
 export default {
