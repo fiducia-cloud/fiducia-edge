@@ -113,6 +113,43 @@ test("read failover advances regions but mutation transport failure does not rep
   }
 });
 
+test("forwardWithFailover returns a generic 502 without leaking region names or transport errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const regions = [
+    { name: "secret-region-a", url: "https://a.internal.example" },
+    { name: "secret-region-b", url: "https://b.internal.example" },
+  ];
+
+  try {
+    globalThis.fetch = async () => {
+      throw new Error("connect ECONNREFUSED 10.0.0.9:8443");
+    };
+    console.warn = () => {}; // silence the expected server-side log line
+
+    const resp = await forwardWithFailover(
+      new Request("https://api.example/v1/kv?key=x"),
+      regions,
+      null,
+      {},
+    );
+
+    assert.equal(resp.status, 502);
+    const body = await resp.json();
+    assert.equal(body.error, "no_region");
+    // Client-facing detail must not disclose internal region names or the raw
+    // transport error (host/IP), only a generic message.
+    assert.equal(body.detail, "no healthy region could serve the request");
+    const serialized = JSON.stringify(body);
+    assert.ok(!serialized.includes("secret-region"), "must not leak region names");
+    assert.ok(!serialized.includes("ECONNREFUSED"), "must not leak transport error");
+    assert.ok(!serialized.includes("10.0.0.9"), "must not leak internal host/ip");
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
+
 // Mint a real ES256 JWT with a fresh WebCrypto key; returns the token + public JWK.
 async function mintEs256(payload) {
   const { publicKey, privateKey } = await crypto.subtle.generateKey(
