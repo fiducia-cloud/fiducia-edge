@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Cloudflare Worker tooling / deploy image for fiducia-edge.
-FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09 AS build
+FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583 AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git
 
@@ -28,7 +28,7 @@ RUN npm ci --ignore-scripts
 COPY src src
 RUN npm run check
 
-FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09
+FROM node:26-slim@sha256:715e55e4b84e4bb0ff48e49b398a848f08e55daed8eb6a0ea1839ae53bc57583
 WORKDIR /build/fiducia-edge
 COPY --from=build --chown=node:node /build/fiducia-interfaces /build/fiducia-interfaces
 COPY --from=build --chown=node:node /build/fiducia-edge /build/fiducia-edge
