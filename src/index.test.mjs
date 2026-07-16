@@ -185,6 +185,81 @@ test("isCacheableRead: only an explicit, non-watch KV read is cacheable", () => 
   assert.equal(isCacheableRead(req(`${base}/v1/locks?key=x&cache=30`)), false);
 });
 
+test("mutating methods are never cacheable, even on a fully opted-in KV URL", () => {
+  // The exact URL shape that IS cacheable as a GET…
+  const optIn = "https://api.fiducia.cloud/v1/kv?key=flags/x&cache=30";
+  assert.equal(isCacheableRead(req(optIn)), true);
+
+  // …must never be cacheable under any mutating method: serving a cached
+  // response to a write would silently drop the mutation.
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    assert.equal(
+      isCacheableRead(req(optIn, method)),
+      false,
+      `${method} with ?key=&cache= must not be cacheable`,
+    );
+    // And the two helpers must agree: anything not replay-safe is not
+    // cacheable either — a cache hit IS a replay of an old response.
+    assert.equal(isReplaySafeMethod(method), false);
+  }
+
+  // Slash-bearing keys stay query params (LB rule: keys are never path
+  // segments); a mutating method on such a key is still not cacheable.
+  assert.equal(
+    isCacheableRead(req("https://api.fiducia.cloud/v1/kv?key=orders%2F42&cache=30", "DELETE")),
+    false,
+  );
+});
+
+test("a 5xx response fails over for reads but is returned verbatim for mutations", async () => {
+  const originalFetch = globalThis.fetch;
+  const regions = [
+    { name: "first", url: "https://first.example" },
+    { name: "second", url: "https://second.example" },
+  ];
+  const env = {};
+
+  try {
+    // Read: a 503 from the primary advances to the fallback region.
+    const readTargets = [];
+    globalThis.fetch = async (target) => {
+      readTargets.push(new URL(target).host);
+      return readTargets.length === 1
+        ? Response.json({ error: "unavailable" }, { status: 503 })
+        : Response.json({ value: "ok" });
+    };
+    const read = await forwardWithFailover(
+      new Request("https://api.example/v1/kv?key=x"),
+      regions,
+      null,
+      env,
+    );
+    assert.equal(read.status, 200);
+    assert.deepEqual(readTargets, ["first.example", "second.example"]);
+
+    // Mutation: a 5xx may follow a COMMITTED write, so it is returned as-is
+    // from the first region and never replayed against another one.
+    const writeTargets = [];
+    globalThis.fetch = async (target) => {
+      writeTargets.push(new URL(target).host);
+      return Response.json({ error: "unavailable" }, { status: 503 });
+    };
+    const write = await forwardWithFailover(
+      new Request("https://api.example/v1/locks/acquire", {
+        method: "POST",
+        body: JSON.stringify({ key: "orders/42" }),
+      }),
+      regions,
+      null,
+      env,
+    );
+    assert.equal(write.status, 503);
+    assert.deepEqual(writeTargets, ["first.example"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("loadRegions: parses the env JSON, tolerates bad/missing config", () => {
   const regions = [
     { name: "us-east", url: "https://us-east.lb.fiducia.cloud" },
