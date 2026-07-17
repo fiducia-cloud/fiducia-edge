@@ -34,6 +34,27 @@ test("only read-only methods are replay-safe across regions", () => {
   }
 });
 
+test("insecurePostureWarnings flags disabled auth and rate limiting by default", () => {
+  // Empty env: both edge protections are off, so both warnings fire.
+  const warnings = insecurePostureWarnings({});
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings.some((w) => w.includes("FIDUCIA_AUTH_REQUIRED")));
+  assert.ok(warnings.some((w) => w.includes("FIDUCIA_RATE_LIMIT_PER_MINUTE")));
+});
+
+test("insecurePostureWarnings is silent once auth and rate limiting are set", () => {
+  const secure = insecurePostureWarnings({
+    FIDUCIA_AUTH_REQUIRED: "true",
+    FIDUCIA_RATE_LIMIT_PER_MINUTE: "120",
+  });
+  assert.deepEqual(secure, []);
+
+  // A configured limit with auth still off leaves exactly the auth warning.
+  const partial = insecurePostureWarnings({ FIDUCIA_RATE_LIMIT_PER_MINUTE: "10" });
+  assert.equal(partial.length, 1);
+  assert.ok(partial[0].includes("FIDUCIA_AUTH_REQUIRED"));
+});
+
 test("configured rate limiting fails closed without its Durable Object binding", async () => {
   const result = await checkRateLimit(
     new Request("https://api.example/v1/kv?key=x"),
