@@ -14,6 +14,7 @@ import {
   forwardWithFailover,
   headersForOrigin,
   isApiKeyCredential,
+  insecurePostureWarnings,
   isCacheableRead,
   isReplaySafeMethod,
   loadRegions,
