@@ -349,8 +349,47 @@ export async function forwardWithFailover(request, regions, auth, env) {
   );
 }
 
+/**
+ * Loud warnings for an insecure edge posture: unauthenticated requests allowed
+ * through, or edge rate limiting disabled. Pure + exported for unit testing.
+ *
+ * The edge deliberately keeps both OFF by default rather than flipping them on:
+ * it is the *global* front door, where the regional load balancer already fails
+ * closed on every scoped route, and a non-zero global rate limit has a large
+ * blast radius. But an operator must never run this posture unknowingly, so
+ * `warnInsecurePostureOnce` surfaces these once per isolate at request time
+ * (Workers have no startup hook). Escape hatch / hardening knobs:
+ * `FIDUCIA_AUTH_REQUIRED=true` and `FIDUCIA_RATE_LIMIT_PER_MINUTE=<n>`.
+ */
+export function insecurePostureWarnings(env) {
+  const warnings = [];
+  if (!envBool(env, "FIDUCIA_AUTH_REQUIRED", false)) {
+    warnings.push(
+      "FIDUCIA_AUTH_REQUIRED is not enabled — the edge forwards unauthenticated requests as anonymous; set FIDUCIA_AUTH_REQUIRED=true to reject them at the edge",
+    );
+  }
+  if (envNumber(env, "FIDUCIA_RATE_LIMIT_PER_MINUTE", 0) <= 0) {
+    warnings.push(
+      "FIDUCIA_RATE_LIMIT_PER_MINUTE is unset or 0 — edge rate limiting is DISABLED; set a positive per-minute limit to shield the cluster",
+    );
+  }
+  return warnings;
+}
+
+let insecurePostureWarned = false;
+
+/** Emit the insecure-posture warnings at most once per Worker isolate. */
+function warnInsecurePostureOnce(env) {
+  if (insecurePostureWarned) return;
+  insecurePostureWarned = true;
+  for (const warning of insecurePostureWarnings(env)) {
+    console.warn("fiducia-edge posture:", warning);
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
+    warnInsecurePostureOnce(env);
     const url = new URL(request.url);
 
     // The edge's own liveness (not proxied).
