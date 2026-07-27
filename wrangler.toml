@@ -1,6 +1,6 @@
 # Cloudflare Wrangler config: Worker name, entry point, and deploy settings.
 name = "fiducia-edge"
-main = "src/index.mjs"
+main = "src/worker.mjs"
 compatibility_date = "2026-06-01"
 
 # Regional load-balancer origins the edge forwards to (ordered primary→fallback).
@@ -8,6 +8,8 @@ compatibility_date = "2026-06-01"
 # the list + per-region health can change without a redeploy.
 [vars]
 FIDUCIA_REGIONS = '[{"name":"us-east","url":"https://us-east.lb.fiducia.cloud"},{"name":"eu-west","url":"https://eu-west.lb.fiducia.cloud"}]'
+FIDUCIA_DEPLOYMENT_MODE = "production"
+FIDUCIA_CROSS_ORIGIN_RESOURCE_POLICY = "same-site"
 FIDUCIA_AUTH_REQUIRED = "true"
 FIDUCIA_AUTH_URL = "https://auth.fiducia.cloud"
 FIDUCIA_AUTH_CACHE_TTL_SECONDS = "60"
@@ -16,6 +18,11 @@ FIDUCIA_AUTH_JWKS_TTL_SECONDS = "600"
 FIDUCIA_AUTH_JWT_CACHE_TTL_SECONDS = "60"
 FIDUCIA_JWT_ISSUER = "fiducia-auth"
 FIDUCIA_JWT_AUDIENCE = "fiducia-api"
+
+# Optional browser/API connection origins may be declared with a whitespace- or
+# comma-separated list of complete HTTPS/WSS origins. Production rejects HTTP,
+# wildcards, credentials, paths, queries, fragments, and directive injection.
+# FIDUCIA_CSP_CONNECT_SRC = "https://app.fiducia.cloud https://admin.fiducia.cloud"
 
 # Optional: live routing config + per-region health, read at the edge.
 # [[kv_namespaces]]
