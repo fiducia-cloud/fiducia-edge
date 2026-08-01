@@ -19,6 +19,14 @@ FIDUCIA_AUTH_JWT_CACHE_TTL_SECONDS = "60"
 FIDUCIA_JWT_ISSUER = "fiducia-auth"
 FIDUCIA_JWT_AUDIENCE = "fiducia-api"
 
+# Reader-only revocation authority. The endpoint is non-secret and may be
+# overridden per environment. Inject FIDUCIA_REVOCATION_READER_SECRET with
+# `wrangler secret put`; never commit its value or reuse the writer credential.
+FIDUCIA_REVOCATION_CHECK_URL = "https://auth.fiducia.cloud/v1/revocations/check"
+FIDUCIA_REVOCATION_CACHE_TTL_SECONDS = "30"
+FIDUCIA_REVOCATION_CACHE_CAPACITY = "10000"
+FIDUCIA_REVOCATION_TIMEOUT_MS = "2000"
+
 # Optional browser/API connection origins may be declared with a whitespace- or
 # comma-separated list of complete HTTPS/WSS origins. Production rejects HTTP,
 # wildcards, credentials, paths, queries, fragments, and directive injection.
@@ -28,6 +36,13 @@ FIDUCIA_JWT_AUDIENCE = "fiducia-api"
 # [[kv_namespaces]]
 # binding = "FIDUCIA_CONFIG"
 # id = "<kv-namespace-id>"
+
+# Optional: bind a Cloudflare Analytics Engine dataset as REVOCATION_METRICS.
+# The revocation boundary emits only bounded metric/outcome labels and numeric
+# latency/staleness values; it never emits tokens, jti, tenant, or subject data.
+# [[analytics_engine_datasets]]
+# binding = "REVOCATION_METRICS"
+# dataset = "fiducia_edge_revocation"
 
 # Atomic distributed rate limiting. Keep this binding whenever
 # FIDUCIA_RATE_LIMIT_PER_MINUTE is greater than zero; the Worker fails closed if
