@@ -1,4 +1,4 @@
-# CI: install, lint, and test the Worker on push and pull request.
+# CI: install, lint, unit-test, and browser-test the Worker on push and pull request.
 name: ci
 on:
   push:
@@ -40,10 +40,37 @@ jobs:
           node-version: "22.22.1"
       - run: npm ci --ignore-scripts
         working-directory: repo
-      # Syntax-check the Worker entrypoint (node --check src/index.mjs).
-      - run: npm run check
+      - name: Syntax checks
+        run: npm run check
         working-directory: repo
-      # Worker unit tests (src/index.test.mjs). No deploy — the Worker runs on
-      # Cloudflare's edge, not in CI.
-      - run: node --test
+      - name: Unit and integration tests
+        run: npm test
         working-directory: repo
+      - name: Locate Chrome
+        id: chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              printf 'path=%s\n' "$(command -v "$candidate")" >> "$GITHUB_OUTPUT"
+              "$candidate" --version
+              exit 0
+            fi
+          done
+          echo "::error::No Chrome or Chromium executable is installed on the runner"
+          exit 1
+      - name: Browser security-boundary smoke tests
+        env:
+          BROWSER_ARTIFACT_DIR: artifacts/browser-smoke
+          CHROME_PATH: ${{ steps.chrome.outputs.path }}
+        run: npm run test:browser
+        working-directory: repo
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fiducia-edge-browser-smoke-${{ github.run_attempt }}
+          path: repo/artifacts/browser-smoke
+          if-no-files-found: error
+          retention-days: 14
