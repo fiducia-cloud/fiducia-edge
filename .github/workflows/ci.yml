@@ -1,4 +1,4 @@
-# CI: install, lint, unit-test, and browser-test the Worker on push and pull request.
+# CI: audit, lint, unit-test, and browser-test the Worker on push and pull request.
 name: ci
 on:
   push:
@@ -39,6 +39,12 @@ jobs:
         with:
           node-version: "22.22.1"
       - run: npm ci --ignore-scripts
+        working-directory: repo
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: repo
+      - name: Block critical development-tool vulnerabilities
+        run: npm audit --audit-level=critical
         working-directory: repo
       - name: Syntax checks
         run: npm run check
