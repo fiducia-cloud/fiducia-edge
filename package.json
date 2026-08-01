@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node --check src/index.mjs && node --check src/jwt-revocation-boundary.mjs && node --check src/security-boundary.mjs && node --check src/worker.mjs",
-    "test": "node --test"
+    "check": "node --check src/index.mjs && node --check src/jwt-revocation-boundary.mjs && node --check src/security-boundary.mjs && node --check src/worker.mjs && node --check tests/browser/edge-browser-smoke.mjs",
+    "test": "node --test",
+    "test:browser": "node tests/browser/edge-browser-smoke.mjs"
   },
   "dependencies": {
     "@fiducia/interfaces": "file:../fiducia-interfaces"
