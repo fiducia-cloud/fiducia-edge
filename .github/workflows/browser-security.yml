@@ -1,0 +1,92 @@
+name: browser-security
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/browser-security.yml"
+      - "docs/browser-security-smoke.md"
+      - "package.json"
+      - "scripts/browser-security-smoke.mjs"
+      - "src/security-boundary.mjs"
+      - "src/security-boundary.test.mjs"
+      - "src/worker.mjs"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/browser-security.yml"
+      - "docs/browser-security-smoke.md"
+      - "package.json"
+      - "scripts/browser-security-smoke.mjs"
+      - "src/security-boundary.mjs"
+      - "src/security-boundary.test.mjs"
+      - "src/worker.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    name: Chromium policy enforcement
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.0-noble@sha256:35246d87a7c88ea9b771c65d33171b2611b02a8253b4b12ce6f94376c55f99f2
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      FIDUCIA_BROWSER_ARTIFACT_DIR: artifacts/browser-security
+    steps:
+      - name: Check out edge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: repo
+
+      - name: Validate workflows
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: repo/.github/workflows/ci.yml repo/.github/workflows/browser-security.yml
+
+      - name: Check out interfaces dependency
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: fiducia-cloud/fiducia-interfaces
+          ref: 487e470c45ab5851e8f6f3b1dc048fe067fbf408
+          path: fiducia-interfaces
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.0.0
+        with:
+          node-version: "22.22.1"
+
+      - name: Install locked application dependencies
+        working-directory: repo
+        run: npm ci --ignore-scripts
+
+      - name: Install the Playwright client matching the pinned browser image
+        working-directory: repo
+        run: npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.0
+
+      - name: Syntax and unit tests
+        working-directory: repo
+        run: |
+          npm run check
+          npm test
+
+      - name: Enforce CSP and cookie contracts in Chromium
+        working-directory: repo
+        run: npm run test:browser-security
+
+      - name: Upload browser evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fiducia-edge-browser-security
+          path: repo/artifacts/browser-security/
+          if-no-files-found: error
+          retention-days: 14
