@@ -1,21 +1,21 @@
 {
-  "name": "fiducia-edge",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
+  "dependencies": {
+    "@fiducia/interfaces": "file:../fiducia-interfaces"
+  },
   "description": "Cloudflare Worker — global edge entry for fiducia.cloud; region selection + edge concerns, forwards to the regional load balancer.",
+  "devDependencies": {
+    "wrangler": "^4.105.0"
+  },
+  "name": "fiducia-edge",
+  "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
     "check": "node --check src/index.mjs && node --check src/jwt-revocation-boundary.mjs && node --check src/security-boundary.mjs && node --check src/worker.mjs && node --check scripts/browser-security-smoke.mjs && node --check tests/browser/edge-browser-smoke.mjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
     "test": "node --test",
     "test:browser": "node tests/browser/edge-browser-smoke.mjs",
     "test:browser-security": "node scripts/browser-security-smoke.mjs"
   },
-  "dependencies": {
-    "@fiducia/interfaces": "file:../fiducia-interfaces"
-  },
-  "devDependencies": {
-    "wrangler": "^4.105.0"
-  }
+  "type": "module",
+  "version": "0.1.0"
 }
