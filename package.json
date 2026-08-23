@@ -14,8 +14,18 @@
     "dev": "wrangler dev",
     "test": "node --test",
     "test:browser": "node tests/browser/edge-browser-smoke.mjs",
-    "test:browser-security": "node scripts/browser-security-smoke.mjs"
+    "test:browser-security": "node scripts/browser-security-smoke.mjs",
+    "lint:ores": "if [ -f .ores-lint/lint.sh ]; then sh .ores-lint/lint.sh; else echo 'ores-lint not installed'; fi",
+    "prepublishOnly": "npm run lint:ores"
   },
   "type": "module",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "oresLint": {
+    "note": "Declared, not installed. ores-lint resolves these from a global install - see .ores-lint/README.md",
+    "requires": {
+      "eslint": ">=9",
+      "typescript-eslint": ">=8 (optional; without it .ts files are skipped)"
+    },
+    "install": "npm i -g eslint typescript-eslint"
+  }
 }
