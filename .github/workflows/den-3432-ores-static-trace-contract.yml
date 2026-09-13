@@ -1,0 +1,25 @@
+name: ORES static trace contract
+on: [pull_request]
+permissions: {contents: read}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2}
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import re,subprocess,sys
+          d=subprocess.run(['git','diff','--unified=0','HEAD^','HEAD'],text=True,stdout=subprocess.PIPE).stdout
+          a='\n'.join(x[1:] for x in d.splitlines() if x.startswith('+') and not x.startswith('+++'))
+          legacy='dd'+'-trace-'; bad_routine='.add'+'Routine('
+          e=[]
+          if legacy in a:e+=['new legacy trace prefix']
+          if bad_routine in a:e+=['use addRoutineId()']
+          for m in re.finditer(r"\.(?:addTrace|addTraceId|add_trace|add_trace_id)\s*\(\s*(['\"])([^'\"]+)\1",a):
+            if not m.group(2).startswith('ores-trace-'):e+=[f'bad static trace id: {m.group(2)}']
+          print('TJSV remains the fail-closed TypeSpec/JSON Schema parity gate.')
+          [print('ERROR:',x) for x in e]
+          sys.exit(bool(e))
+          PY
