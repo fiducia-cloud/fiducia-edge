@@ -1,0 +1,16 @@
+# Canonical flags-2-env boundary for fiducia-edge.
+# Edge-provider bindings and credentials remain outside argv.
+
+[identity]
+service = "fiducia-edge"
+type_name = "EdgeEnv"
+
+[help]
+url = "https://github.com/flags-2-env/flags-2-env"
+
+[parse]
+allow_unknown = false
+
+[env]
+load = false
+files = []
