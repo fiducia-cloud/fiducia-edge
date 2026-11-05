@@ -232,3 +232,95 @@ test("missing credentials are rejected before either auth or regional network ac
   assert.equal(regionalCalls, 0);
   assert.equal(result.headers.get("cache-control"), "no-store");
 });
+
+
+test("client -> edge -> auth: 307/308 cannot redirect customer API keys or server-only auth", async (t) => {
+  let intercepted = 0;
+  let regionalWrites = 0;
+  const attacker = await listen(async (request, response) => {
+    intercepted++;
+    await bodyOf(request);
+    respond(response, 200, { valid: true, org_id: "forged-tenant", scopes: ["admin"] });
+  });
+  t.after(attacker.close);
+
+  let status = 307;
+  let introspected = 0;
+  const auth = await listen(async (request, response) => {
+    introspected++;
+    assert.equal(request.method, "POST");
+    assert.equal(request.headers["x-server-auth"], "server-only-introspection-proof");
+    const body = JSON.parse(await bodyOf(request));
+    assert.match(body.api_key, /^fdc_e2e_/);
+    response.writeHead(status, {
+      location: `${attacker.url}/capture`,
+      "content-type": "application/json",
+    });
+    response.end('{"error":"misdirected_auth_request"}');
+  });
+  t.after(auth.close);
+  const regional = await listen(async (_request, response) => {
+    regionalWrites++;
+    respond(response, 200, { committed: true });
+  });
+  t.after(regional.close);
+
+  for (const code of [307, 308]) {
+    status = code;
+    const customerKey = `fdc_e2e_${randomUUID()}.secret`;
+    const result = await worker.fetch(
+      new Request("https://edge.fiducia.test/v1/locks/acquire", {
+        method: "POST",
+        headers: { authorization: `Bearer ${customerKey}` },
+        body: JSON.stringify({ key: "org/private", holder: "worker-secret" }),
+      }),
+      envFor([regional], {
+        FIDUCIA_AUTH_REQUIRED: "true",
+        FIDUCIA_AUTH_INTROSPECT_URL: `${auth.url}/v1/introspect`,
+        FIDUCIA_INTROSPECT_SECRET: "server-only-introspection-proof",
+      }),
+      {},
+    );
+    assert.equal(result.status, 503, "redirect must be treated as auth authority failure");
+    assert.equal((await result.json()).error, "auth_unavailable");
+    assert.equal(result.headers.get("cache-control"), "no-store");
+    assert.equal(intercepted, 0, "untrusted redirect may never be followed");
+    assert.equal(regionalWrites, 0, "failed authentication may never reach regional servers");
+  }
+  assert.equal(introspected, 2);
+});
+
+test("client -> edge -> auth: upstream 500 never becomes authorization or an echoed authority body", async (t) => {
+  let regionalCalls = 0;
+  const regional = await listen(async (_request, response) => {
+    regionalCalls++;
+    respond(response, 200, { committed: true });
+  });
+  t.after(regional.close);
+  const auth = await listen(async (request, response) => {
+    assert.equal(request.url, "/v1/introspect");
+    await bodyOf(request);
+    respond(response, 500, {
+      error: "private_auth_failure",
+      debug: "should-not-be-exposed-to-customer",
+    });
+  });
+  t.after(auth.close);
+
+  const credential = `fdc_e2e_${randomUUID()}.secret`;
+  const result = await worker.fetch(
+    new Request("https://edge.fiducia.test/v1/kv?key=private", {
+      headers: { authorization: `Bearer ${credential}` },
+    }),
+    envFor([regional], {
+      FIDUCIA_AUTH_REQUIRED: "true",
+      FIDUCIA_AUTH_INTROSPECT_URL: `${auth.url}/v1/introspect`,
+    }),
+    {},
+  );
+  assert.equal(result.status, 503);
+  const body = await result.text();
+  assert.match(body, /auth_unavailable/);
+  assert.doesNotMatch(body, /private_auth_failure|should-not-be-exposed|fdc_e2e_/);
+  assert.equal(regionalCalls, 0);
+});
