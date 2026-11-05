@@ -137,6 +137,9 @@ async function checkApiKey(apiKey, env) {
       method: "POST",
       headers,
       body: JSON.stringify({ api_key: apiKey }),
+      // A redirect is untrusted. Never forward a customer API key or the
+      // server-only introspection secret to a Location supplied by upstream.
+      redirect: "manual",
     });
   } catch (err) {
     // Log the upstream detail server-side only; never echo it to the client.
